@@ -1,4 +1,9 @@
 # -*- coding: utf-8 -*-
+import logging
+from logging import StreamHandler
+from logging.handlers import RotatingFileHandler
+
+
 def auto_tagging(tagged_str: str, new_str: str) -> str:
     """根据标注的文本，获取其中的实体词及标签，对后续的未标注文本进行
     自动标注。
@@ -42,7 +47,18 @@ def auto_tagging(tagged_str: str, new_str: str) -> str:
     return new_tagged
 
 
-if __name__ == '__main__':
-    new_st = '当日新增治愈出院病例15例，解除医学观察的密切接触者288人，重症病例较前一日减少2例。\n\n当日新增治愈出院病例15例，解除医学观察的密切接触者288人，重症病例较前一日减少2例。\n'
-    print(new_st)
-    print(auto_tagging('[@新增治愈出院病例#Artifical*]', new_st))
+def init_logger(print_on_console: bool = True,
+                log_to_file: bool = False):
+    logger = logging.getLogger('root')
+    logger.setLevel(logging.DEBUG)
+    file_handler = RotatingFileHandler('operation.log', maxBytes=10 * 1024 * 1024, backupCount=5)
+    formatter = logging.Formatter("%(asctime)s - %(levelname)s %(filename)s %(lineno)d: %(message)s",
+                                  datefmt='%Y-%m-%d %H:%M:%S')
+    console_handler = StreamHandler()
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+    if print_on_console:
+        logger.addHandler(console_handler)
+    if log_to_file:
+        logger.addHandler(file_handler)
+    return logger
