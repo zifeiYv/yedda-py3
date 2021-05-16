@@ -1,4 +1,9 @@
 # -*- coding: utf-8 -*-
+"""
+todo:
+    1、按了合法的快捷键，但没有选择文本，应做特殊处理；
+    2、增加取消标记的功能
+"""
 import tkinter as tk
 import platform
 from tkinter import font, filedialog, ttk, Button
@@ -22,6 +27,7 @@ class MyFrame(tk.Frame):
         self.auto_tag = False
         self.history = deque(maxlen=20)  # 存储操作历史，最多存储20步
         self.content = ''
+        self.no_sel_text = False
         # 初始的"按键-指令"映射关系
         self.press_cmd = {}
         self.all_keys = "abcdefghijklmnopqrstuvwxyz"
@@ -110,12 +116,20 @@ class MyFrame(tk.Frame):
             release = "<KeyRelease-" + press_key + ">"
             self.text.bind(release, self.release_key_action)
         if self._os == 'darwin':
-            self.text.bind('<Command-Key-z>', self.fallback_action)
-            self.text.bind('<Command-Key-u>', self.untag)
+            self.text.bind('<Control-Key-z>', self.fallback_and_render)
+            self.text.bind('<Control-Key-u>', self.untag)
         else:
-            self.text.bind('<Control-z>', self.fallback_action)
+            self.text.bind('<Control-z>', self.fallback_and_render)
             self.text.bind('<Control-u>', self.untag)
+        
+        self.text.bind('<ButtonRelease-1>', self.button_release_1)
         self.set_shortcuts_layout()
+
+    def button_release_1(self, event):
+        """单击鼠标左键的操作"""
+        logger.info("更新光标位置")
+        index = self.text.index(tk.INSERT).split('.')
+        self.cr_psn.config(text=("row: %s\ncol: %s" % (index[0], index[1])))
 
     def open_file(self):
         logger.info('选择文件')
@@ -165,6 +179,8 @@ class MyFrame(tk.Frame):
             return
         logger.info('标注')
         content = self.tag_text(press_key)
+        if not content:
+            return
         self.content = content
         # 此时暂不渲染，因为按下键时，已经在最后插入了一个字符
         # 因此，再定义一个后续释放键的操作，用于删除那个新增的字符
@@ -179,8 +195,12 @@ class MyFrame(tk.Frame):
                 content = self.fallback_action()
                 self.render_text(content)
         else:
-            self.render_text(self.content)
-            self.save_to_history()
+            if self.no_sel_text:  # 没有选择文本
+                if self.content:
+                    self.render_text(self.content)
+            else:
+                self.render_text(self.content)
+                self.save_to_history()
 
     def fallback_action(self, event=None, act_msg=None):
         """回退上一步的操作
@@ -207,6 +227,10 @@ class MyFrame(tk.Frame):
         return content
         # self.set_shortcuts_layout()
 
+    def fallback_and_render(self, **kwargs):
+        content = self.fallback_action(kwargs)
+        self.render_text(content)
+
     def untag(self, event):
         """取消标记"""
         logger.info('取消标记')
@@ -221,8 +245,14 @@ class MyFrame(tk.Frame):
     def tag_text(self, command):
         """根据键入的命令，对文本进行标注"""
         logger.info('开始标注')
-        sel_first = self.text.index(tk.SEL_FIRST)  # 选定文本的开始位置
-        sel_last = self.text.index(tk.SEL_LAST)  # 选定文本的结束位置
+        try:
+            sel_first = self.text.index(tk.SEL_FIRST)  # 选定文本的开始位置
+            sel_last = self.text.index(tk.SEL_LAST)  # 选定文本的结束位置
+        except tk.TclError:
+            logger.warning('未选择文本，无法进行标注')
+            self.msg_lbl.config(text="先选择文本，再进行标注")
+            self.no_sel_text = True
+            return None
         former_text = self.text.get('1.0', sel_first)  # 从开始到sel_first的文本
         latter_text = self.text.get(sel_first, "end-1c")  # 从sel_first到最后的文本
         selected_string = self.text.selection_get()  # 选中的文本
@@ -237,11 +267,6 @@ class MyFrame(tk.Frame):
         else:
             content = former_text + latter_text2
         return content
-        # logger.info('标注完成')
-        # logger.info('存入历史')
-        # self.save_to_history()
-        #
-        # self.write_to_file(self.file_name, content, sel_last)
 
     def update_all_tagged_strs(self, key, start_index, end_index):
         """更新all_tagged_strs"""
