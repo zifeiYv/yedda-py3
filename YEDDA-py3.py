@@ -86,8 +86,8 @@ class MyFrame(tk.Frame):
         btn = Button(self, text="打开文件", command=self.open_file, width=12)
         btn.grid(row=2, column=self.frame_cols + 1)
 
-        btn = Button(self, text="格式化", command=self.format, width=12)
-        btn.grid(row=2, column=self.frame_cols + 2, pady=4)
+        self.format_btn = Button(self, text="格式化", command=self.format, width=12)
+        self.format_btn.grid(row=2, column=self.frame_cols + 2, pady=4)
 
         btn = Button(self, text="导出", command=self.export, width=12)
         btn.grid(row=3, column=self.frame_cols + 2, pady=4)
@@ -341,10 +341,11 @@ class MyFrame(tk.Frame):
         logger.info(f'写入历史队列')
         self.history.append([content, all_tagged_strings])
         logger.info(f'历史队列元素数量：{len(self.history)}')
+        self.update_undo_btn()
         if len(self.history) > 1:
-            self.undo_btn.config(state='active')
+            self.format_btn.config(state='disabled')
         else:
-            self.undo_btn.config(state='disabled')
+            self.format_btn.config(state='normal')
 
     def update_undo_btn(self):
         """更新undo_btn控件的状态，目前控件一共包括：
@@ -352,7 +353,7 @@ class MyFrame(tk.Frame):
         if len(self.history) < 2:
             self.undo_btn.config(state='disabled')
         else:
-            self.undo_btn.config(state='active')
+            self.undo_btn.config(state='normal')
 
     def set_shortcuts_layout(self):
         """规划「快捷键」的布局"""
