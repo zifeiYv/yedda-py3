@@ -12,6 +12,7 @@ from utils import auto_tagging, init_logger
 import json
 from utils.colors import color_mapping
 import re
+from time import sleep
 
 logger = init_logger()
 
@@ -109,7 +110,6 @@ class MyFrame(tk.Frame):
         # 光标当前位置
         self.cr_psn = '1.0'
 
-        # 此功能暂时不可用
         self.msg_lbl = tk.Label(self, text="", anchor='w')
         self.msg_lbl.grid(row=self.frame_rows + 1, column=0, sticky=tk.E + tk.W + tk.S + tk.N, pady=4, padx=10)
 
@@ -151,6 +151,20 @@ class MyFrame(tk.Frame):
             self.text.insert(tk.END, text)
             # 更新显示的文件路径
             self.set_label("文件位置：" + fl)
+            # 更新变量
+            self.history = deque(maxlen=20)
+            self.content = ''
+            self.no_sel_text = False
+            # 初始的"按键-指令"映射关系
+            self.press_cmd = {}
+            self.all_tagged_strings = {}  # 存储所有标注的文本的索引，及其对应的快捷键
+            self.entry_list = []  # 存储解释快捷键对应含义的Entry的List
+            self.label_list = []  # 存储快捷键名称的Label的List
+            # ShortCuts Label
+            self.sc_lbl = None
+            # 显示配置文件名称的下拉列表控件
+            self.config_box = None
+            self.key_color_mapping = {}
             self.save_to_history(text)
 
     def read_file(self, file_name):
@@ -224,22 +238,22 @@ class MyFrame(tk.Frame):
             logger.info(f'{act_msg}')
         if undo:  # 能点击撤销操作按钮，则len(self.history)>2
             self.history.pop()
-            content, all_tagged_strs = self.history[-1]
+            content, all_tagged_strings = self.history[-1]
             logger.info(f'历史队列长度：{len(self.history)}')
-            return content, all_tagged_strs
+            return content, all_tagged_strings
         if len(self.history) == 1:
             # 历史队列中只有一个元素，回退后需要将该元素重新填入队列
             # 即，保证历史队列中总有一个元素
-            content, all_tagged_strs = self.history[-1]
+            content, all_tagged_strings = self.history[-1]
             logger.info(f'历史队列长度：{len(self.history)}')
-            return content, all_tagged_strs
+            return content, all_tagged_strings
         elif len(self.history) > 1:
             if not delete_last:
-                content, all_tagged_strs = self.history[-1]
+                content, all_tagged_strings = self.history[-1]
             else:
-                content, all_tagged_strs = self.history.pop()
+                content, all_tagged_strings = self.history.pop()
             logger.info(f'历史队列长度：{len(self.history)}')
-            return content, all_tagged_strs
+            return content, all_tagged_strings
         else:
             logger.error('历史队列为空！')
             raise
@@ -462,7 +476,8 @@ class MyFrame(tk.Frame):
 
     def export(self):
         # 按照换行符进行分割，此时仍有空白行，在按段落遍历时去除
-        text_paras = open(self.file_name).readlines()
+        text_paras, tagged_strings = self.history[-1]
+        text_paras = text_paras.split('\n')
         new_filename = self.file_name.split('.ann')[0] + '.anns'
         f = open(new_filename, 'w')
         for i in range(len(text_paras)):
@@ -477,6 +492,15 @@ class MyFrame(tk.Frame):
                 if i != len(text_paras) - 1:
                     f.write('\n')
         f.close()
+        ent_count = {}
+        for i in tagged_strings:
+            key = tagged_strings[i]
+            if key in ent_count:
+                ent_count[key] += 1
+            else:
+                ent_count[key] = 1
+        logger.info(f'实体标注情况：{ent_count}')
+
         self.msg_lbl.config(text='导出成功')
 
     def format(self):
@@ -485,7 +509,6 @@ class MyFrame(tk.Frame):
         text = '\n'.join([i for i in content.split('\n') if i])
         self.text.delete("1.0", tk.END)
         self.text.insert(tk.END, text)
-        # self.setColorDisplay()
         self.render_color()
 
     def render_color(self, all_tagged_strings=None):
