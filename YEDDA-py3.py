@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """
 todo:
-    1、按了合法的快捷键，但没有选择文本，应做特殊处理；
     2、增加取消标记的功能
 """
 import tkinter as tk
@@ -91,18 +90,24 @@ class MyFrame(tk.Frame):
         btn.grid(row=2, column=self.frame_cols + 2, pady=4)
 
         btn = Button(self, text="导出", command=self.export, width=12)
-        btn.grid(row=3, column=self.frame_cols + 1, pady=4)
-
-        btn = Button(self, text="退出程序", bg='red', command=self.quit, width=12)
         btn.grid(row=3, column=self.frame_cols + 2, pady=4)
 
-        # todo: 增加更多的功能键
-        #
+        btn = Button(self, text="退出程序", bg='red', command=self.quit, width=12)
+        btn.grid(row=4, column=self.frame_cols + 2, pady=4)
 
-        # 光标的当前位置(cursor position)
-        self.cr_psn = tk.Label(self, text=("row: %s\ncol: %s" % (0, 0)),
-                               font=(self.word_style, 10, "bold"))
-        self.cr_psn.grid(row=self.frame_rows + 1, column=self.frame_cols + 2, pady=4)
+        if len(self.history) < 2:
+            self.undo_btn = Button(self, text="撤销", bg='red', command=self.undo, width=12, state='disabled')
+        else:
+            self.undo_btn = Button(self, text="撤销", bg='red', command=self.undo, width=12)
+
+        self.undo_btn.grid(row=3, column=self.frame_cols + 1, pady=4)
+
+        # 展示光标位置信息（cursor position）
+        self.cr_info = tk.Label(self, text=("row: %s\ncol: %s" % (1, 0)),
+                                font=(self.word_style, 10, "bold"))
+        self.cr_info.grid(row=self.frame_rows + 1, column=self.frame_cols + 2, pady=4)
+        # 光标当前位置
+        self.cr_psn = '1.0'
 
         # 此功能暂时不可用
         self.msg_lbl = tk.Label(self, text="", anchor='w')
@@ -115,21 +120,22 @@ class MyFrame(tk.Frame):
             # 标注完成后，需要在释放所按键时删除输入的所按键的字符
             release = "<KeyRelease-" + press_key + ">"
             self.text.bind(release, self.release_key_action)
-        if self._os == 'darwin':
-            self.text.bind('<Control-Key-z>', self.fallback_and_render)
-            self.text.bind('<Control-Key-u>', self.untag)
-        else:
-            self.text.bind('<Control-z>', self.fallback_and_render)
-            self.text.bind('<Control-u>', self.untag)
+        # if self._os == 'darwin':
+        #     self.text.bind('<Control-Key-z>', self.fallback_and_render)
+        #     self.text.bind('<Control-Key-u>', self.undo)
+        # else:
+        #     self.text.bind('<Control-z>', self.fallback_and_render)
+        #     self.text.bind('<Control-u>', self.undo)
         
         self.text.bind('<ButtonRelease-1>', self.button_release_1)
         self.set_shortcuts_layout()
 
     def button_release_1(self, event):
         """单击鼠标左键的操作"""
-        logger.info("更新光标位置")
-        index = self.text.index(tk.INSERT).split('.')
-        self.cr_psn.config(text=("row: %s\ncol: %s" % (index[0], index[1])))
+        self.cr_psn = self.text.index(tk.INSERT)
+        logger.info(f"更新光标位置:{self.cr_psn}")
+        index = self.cr_psn.split('.')
+        self.cr_info.config(text=("row: %s\ncol: %s" % (index[0], index[1])))
 
     def open_file(self):
         logger.info('选择文件')
@@ -145,7 +151,7 @@ class MyFrame(tk.Frame):
             self.text.insert(tk.END, text)
             # 更新显示的文件路径
             self.set_label("文件位置：" + fl)
-            self.save_to_history()
+            self.save_to_history(text)
 
     def read_file(self, file_name):
         f = open(file_name, "r")
@@ -161,7 +167,7 @@ class MyFrame(tk.Frame):
         """更新显示的光标位置信息"""
         psn = cr_psn.split('.')
         cursor_text = ("row: %s\ncol: %s" % (psn[0], psn[-1]))
-        self.cr_psn.config(text=cursor_text)
+        self.cr_info.config(text=cursor_text)
 
     def press_then_release(self, event):
         """定义「按下一个按键并释放后」的操作 todo"""
@@ -174,14 +180,14 @@ class MyFrame(tk.Frame):
         if press_key not in self.press_cmd:
             self.msg_lbl.config(text=f'无效的快捷键{press_key}')
             logger.info(f'无效的快捷键{press_key}')
-            content = self.fallback_action(act_msg=f'撤销键入{press_key}')
-            self.render_text(content)
+            content, all_tagged_strs = self.fallback_action(act_msg=f'撤销键入{press_key}', delete_last=False)
+            self.render_text(content, self.cr_psn)
             return
-        logger.info('标注')
-        content = self.tag_text(press_key)
+        content, sel_last, all_tagged_strs = self.tag_text(press_key)
         if not content:
             return
         self.content = content
+        self.all_tagged_strings = all_tagged_strs
         # 此时暂不渲染，因为按下键时，已经在最后插入了一个字符
         # 因此，再定义一个后续释放键的操作，用于删除那个新增的字符
 
@@ -190,52 +196,60 @@ class MyFrame(tk.Frame):
         press_key = event.char.upper()
         if press_key not in self.press_cmd:
             if self.content:  # 说明不是一开始就按错了键
-                self.render_text(self.content)
+                self.render_text(self.content, all_tagged_strs=self.all_tagged_strings)
             else:  # 如果是一开始就按错了，那就从历史队列中取值
-                content = self.fallback_action()
+                content, all_tagged_strs = self.fallback_action()
                 self.render_text(content)
         else:
             if self.no_sel_text:  # 没有选择文本
-                if self.content:
-                    self.render_text(self.content)
+                content, all_tagged_strs = self.fallback_action(delete_last=False)
+                self.render_text(content, all_tagged_strs=self.all_tagged_strings)
             else:
-                self.render_text(self.content)
-                self.save_to_history()
+                self.render_text(self.content, all_tagged_strs=self.all_tagged_strings)
+                self.save_to_history(self.content, self.all_tagged_strings)
 
-    def fallback_action(self, event=None, act_msg=None):
+    def fallback_action(self, event=None, act_msg=None, delete_last=True,
+                        undo=False):
         """回退上一步的操作
 
         :param event:
         :param act_msg:
+        :param delete_last: 是否删除上一步操作
+        :param undo: 是否为撤销操作，如果为撤销，则进行两次pop
         :return:
         """
         if event:
             logger.info(event.char)
         if act_msg:
             logger.info(f'{act_msg}')
+        if undo:  # 能点击撤销操作按钮，则len(self.history)>2
+            self.history.pop()
+            content, all_tagged_strs = self.history[-1]
+            logger.info(f'历史队列长度：{len(self.history)}')
+            return content, all_tagged_strs
         if len(self.history) == 1:
             # 历史队列中只有一个元素，回退后需要将该元素重新填入队列
             # 即，保证历史队列中总有一个元素
-            content = self.history.pop()
-            self.history.append(content)
+            content, all_tagged_strs = self.history[-1]
+            logger.info(f'历史队列长度：{len(self.history)}')
+            return content, all_tagged_strs
         elif len(self.history) > 1:
-            content = self.history.pop()
-            # self.write_to_file(self.file_name, content)
+            if not delete_last:
+                content, all_tagged_strs = self.history[-1]
+            else:
+                content, all_tagged_strs = self.history.pop()
+            logger.info(f'历史队列长度：{len(self.history)}')
+            return content, all_tagged_strs
         else:
             logger.error('历史队列为空！')
             raise
-        return content
-        # self.set_shortcuts_layout()
 
-    def fallback_and_render(self, **kwargs):
-        content = self.fallback_action(kwargs)
-        self.render_text(content)
-
-    def untag(self, event):
-        """取消标记"""
-        logger.info('取消标记')
-        logger.info(event.char)
-        pass
+    def undo(self):
+        """撤销操作"""
+        logger.info("撤销操作")
+        content, all_tagged_strs = self.fallback_action(undo=True)
+        self.render_text(content, all_tagged_strs=all_tagged_strs)
+        self.update_undo_btn()
 
     def get_text(self):
         """获取Text控件中的所有文本"""
@@ -248,36 +262,40 @@ class MyFrame(tk.Frame):
         try:
             sel_first = self.text.index(tk.SEL_FIRST)  # 选定文本的开始位置
             sel_last = self.text.index(tk.SEL_LAST)  # 选定文本的结束位置
+            self.no_sel_text = False
         except tk.TclError:
             logger.warning('未选择文本，无法进行标注')
             self.msg_lbl.config(text="先选择文本，再进行标注")
             self.no_sel_text = True
-            return None
+            return None, None, None
         former_text = self.text.get('1.0', sel_first)  # 从开始到sel_first的文本
         latter_text = self.text.get(sel_first, "end-1c")  # 从sel_first到最后的文本
         selected_string = self.text.selection_get()  # 选中的文本
         latter_text2 = latter_text[len(selected_string):]
         tagged_str, sel_last = self.tag_and_replace(selected_string, selected_string, command,
                                                     sel_last)
-        self.update_all_tagged_strs(command, sel_first, sel_last)
+        all_tagged_strs = self.update_all_tagged_strs(command, sel_first, sel_last)
         former_text += tagged_str
         if self.auto_tag:
             logger.info('自动标注后续相同文本')
             content = former_text + auto_tagging(tagged_str, latter_text2)
         else:
             content = former_text + latter_text2
-        return content
+        logger.info('标注完成')
+        return content, sel_last, all_tagged_strs
 
     def update_all_tagged_strs(self, key, start_index, end_index):
         """更新all_tagged_strs"""
-        self.all_tagged_strings[start_index + '-' + end_index] = key
+        logger.info('更新已标注索引')
+        tagged_str_index = self.history[-1][1].copy()
+        tagged_str_index[start_index + '-' + end_index] = key
         # 并把所有的位于此标记后面的、同段落的索引位置全部更新
         new_all_tagged_strs = {}
         label = self.press_cmd[key]
         line_no = start_index.split('.')[0]
-        for k in self.all_tagged_strings:
+        for k in tagged_str_index:
             if k == start_index + '-' + end_index:
-                new_all_tagged_strs[k] = self.all_tagged_strings[k]
+                new_all_tagged_strs[k] = tagged_str_index[k]
                 continue
             if k.startswith(line_no):  # 处于同一行的
                 _s, _e = k.split('-')
@@ -285,12 +303,13 @@ class MyFrame(tk.Frame):
                 if int(_s.split('.')[1]) > int(start_index.split('.')[1]):
                     s = line_no + '.' + str(int(_s.split('.')[1]) + len(label) + 5)
                     e = line_no + '.' + str(int(_e.split('.')[1]) + len(label) + 5)
-                    new_all_tagged_strs[s + '-' + e] = self.all_tagged_strings[k]
+                    new_all_tagged_strs[s + '-' + e] = tagged_str_index[k]
                 else:
-                    new_all_tagged_strs[k] = self.all_tagged_strings[k]
+                    new_all_tagged_strs[k] = tagged_str_index[k]
             else:
-                new_all_tagged_strs[k] = self.all_tagged_strings[k]
-        self.all_tagged_strings = new_all_tagged_strs
+                new_all_tagged_strs[k] = tagged_str_index[k]
+        logger.info('更新完成')
+        return new_all_tagged_strs
 
     def tag_and_replace(self, content, string, cmd_key, index):
         """将content中的string进行标记，并返回最新的content和索引
@@ -315,44 +334,23 @@ class MyFrame(tk.Frame):
             content = content.replace(string, new_string, 1)
             return content, new_index
 
-    def write_to_file(self, file_name, content, cr_psn=None, save=False):
-        """将content写入file_name。
-        所有的过程文件的命名方式为：<原始文件名>.ann
-        """
-        logger.info('将当前的Text控件暂存')
-        assert len(file_name) > 0, f'错误的文件名称{file_name}'
-
-        if ".ann" in file_name:  # 如果已经存在过程文件，则全部改写
-            new_name = file_name
-        else:  # 首次则需要创建这个过程文件
-            new_name = file_name + '.ann'
-
-        ann_file = open(new_name, 'w')
-        ann_file.write(content)
-        ann_file.close()
-        self.load_new_file(new_name, cr_psn, save)
-
-    def load_new_file(self, file_name, cr_psn=None, save=False):
-        """读取file_name的内容至Text控件"""
-        self.text.delete("1.0", tk.END)
-        text = self.read_file(file_name)
-        self.text.insert("end-1c", text)
-        self.set_label("文件位置：" + file_name)
-        if cr_psn:
-            self.text.mark_set(tk.INSERT, cr_psn)
-            self.text.see(cr_psn)
-            self.update_cr_psn(cr_psn)
-        logger.info('渲染颜色')
-        if save:
-            self.save_to_history()
-        self.render_color()
-
-    def save_to_history(self):
+    def save_to_history(self, content='', all_tagged_strs={}):
         """将当前的Text控件的内容存储历史"""
-        logger.info(f'写入前历史队列元素数量：{len(self.history)}')
-        content = self.get_text()
-        self.history.append(content)
-        logger.info(f'当前历史队列元素数量：{len(self.history)}')
+        logger.info(f'写入历史队列')
+        self.history.append([content, all_tagged_strs])
+        logger.info(f'历史队列元素数量：{len(self.history)}')
+        if len(self.history) > 1:
+            self.undo_btn.config(state='active')
+        else:
+            self.undo_btn.config(state='disabled')
+
+    def update_undo_btn(self):
+        """更新undo_btn控件的状态，目前控件一共包括：
+        """
+        if len(self.history) < 2:
+            self.undo_btn.config(state='disabled')
+        else:
+            self.undo_btn.config(state='active')
 
     def set_shortcuts_layout(self):
         """规划「快捷键」的布局"""
@@ -487,14 +485,14 @@ class MyFrame(tk.Frame):
         # self.setColorDisplay()
         self.render_color()
 
-    def render_color(self):
+    def render_color(self, all_tagged_strs={}):
         """渲染标注过的文本的颜色"""
-        for idx in self.all_tagged_strings:
+        for idx in all_tagged_strs:
             s, e = idx.split('-')
-            key = self.all_tagged_strings[idx]
+            key = all_tagged_strs[idx]
             self.text.tag_add(f'ent-{key}', s, e)
 
-    def render_text(self, content, cr_psn=None):
+    def render_text(self, content, cr_psn=None, all_tagged_strs={}):
         """渲染Text控件，包括文本的重新加载和颜色的渲染"""
         logger.info('重新加载文本')
         self.text.delete("1.0", tk.END)
@@ -504,7 +502,7 @@ class MyFrame(tk.Frame):
             self.text.see(cr_psn)
             self.update_cr_psn(cr_psn)
         logger.info('渲染颜色')
-        self.render_color()
+        self.render_color(all_tagged_strs)
 
 
 def get_cfg_files():
