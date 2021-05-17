@@ -180,14 +180,14 @@ class MyFrame(tk.Frame):
         if press_key not in self.press_cmd:
             self.msg_lbl.config(text=f'无效的快捷键{press_key}')
             logger.info(f'无效的快捷键{press_key}')
-            content, all_tagged_strs = self.fallback_action(act_msg=f'撤销键入{press_key}', delete_last=False)
+            content, all_tagged_strings = self.fallback_action(act_msg=f'撤销键入{press_key}', delete_last=False)
             self.render_text(content, self.cr_psn)
             return
-        content, sel_last, all_tagged_strs = self.tag_text(press_key)
+        content, sel_last, all_tagged_strings = self.tag_text(press_key)
         if not content:
             return
         self.content = content
-        self.all_tagged_strings = all_tagged_strs
+        self.all_tagged_strings = all_tagged_strings
         # 此时暂不渲染，因为按下键时，已经在最后插入了一个字符
         # 因此，再定义一个后续释放键的操作，用于删除那个新增的字符
 
@@ -196,16 +196,16 @@ class MyFrame(tk.Frame):
         press_key = event.char.upper()
         if press_key not in self.press_cmd:
             if self.content:  # 说明不是一开始就按错了键
-                self.render_text(self.content, all_tagged_strs=self.all_tagged_strings)
+                self.render_text(self.content, all_tagged_strings=self.all_tagged_strings)
             else:  # 如果是一开始就按错了，那就从历史队列中取值
                 content, all_tagged_strs = self.fallback_action()
                 self.render_text(content)
         else:
             if self.no_sel_text:  # 没有选择文本
                 content, all_tagged_strs = self.fallback_action(delete_last=False)
-                self.render_text(content, all_tagged_strs=self.all_tagged_strings)
+                self.render_text(content, all_tagged_strings=self.all_tagged_strings)
             else:
-                self.render_text(self.content, all_tagged_strs=self.all_tagged_strings)
+                self.render_text(self.content, all_tagged_strings=self.all_tagged_strings)
                 self.save_to_history(self.content, self.all_tagged_strings)
 
     def fallback_action(self, event=None, act_msg=None, delete_last=True,
@@ -247,8 +247,8 @@ class MyFrame(tk.Frame):
     def undo(self):
         """撤销操作"""
         logger.info("撤销操作")
-        content, all_tagged_strs = self.fallback_action(undo=True)
-        self.render_text(content, all_tagged_strs=all_tagged_strs)
+        content, all_tagged_strings = self.fallback_action(undo=True)
+        self.render_text(content, all_tagged_strings=all_tagged_strings)
         self.update_undo_btn()
 
     def get_text(self):
@@ -334,10 +334,12 @@ class MyFrame(tk.Frame):
             content = content.replace(string, new_string, 1)
             return content, new_index
 
-    def save_to_history(self, content='', all_tagged_strs={}):
+    def save_to_history(self, content='', all_tagged_strings=None):
         """将当前的Text控件的内容存储历史"""
+        if all_tagged_strings is None:
+            all_tagged_strings = {}
         logger.info(f'写入历史队列')
-        self.history.append([content, all_tagged_strs])
+        self.history.append([content, all_tagged_strings])
         logger.info(f'历史队列元素数量：{len(self.history)}')
         if len(self.history) > 1:
             self.undo_btn.config(state='active')
@@ -485,15 +487,19 @@ class MyFrame(tk.Frame):
         # self.setColorDisplay()
         self.render_color()
 
-    def render_color(self, all_tagged_strs={}):
+    def render_color(self, all_tagged_strings=None):
         """渲染标注过的文本的颜色"""
-        for idx in all_tagged_strs:
+        if all_tagged_strings is None:
+            all_tagged_strings = {}
+        for idx in all_tagged_strings:
             s, e = idx.split('-')
-            key = all_tagged_strs[idx]
+            key = all_tagged_strings[idx]
             self.text.tag_add(f'ent-{key}', s, e)
 
-    def render_text(self, content, cr_psn=None, all_tagged_strs={}):
+    def render_text(self, content, cr_psn=None, all_tagged_strings=None):
         """渲染Text控件，包括文本的重新加载和颜色的渲染"""
+        if all_tagged_strings is None:
+            all_tagged_strings = {}
         logger.info('重新加载文本')
         self.text.delete("1.0", tk.END)
         self.text.insert("end-1c", content)
@@ -502,7 +508,7 @@ class MyFrame(tk.Frame):
             self.text.see(cr_psn)
             self.update_cr_psn(cr_psn)
         logger.info('渲染颜色')
-        self.render_color(all_tagged_strs)
+        self.render_color(all_tagged_strings)
 
 
 def get_cfg_files():
